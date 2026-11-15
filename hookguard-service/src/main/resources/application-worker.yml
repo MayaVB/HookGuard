@@ -1,0 +1,7 @@
+# Worker process: consumes delivery work; exposes only actuator health on its own port.
+hookguard:
+  api:
+    enabled: false
+
+server:
+  port: ${PORT:8081}

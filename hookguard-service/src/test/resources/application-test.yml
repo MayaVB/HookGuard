@@ -1,0 +1,21 @@
+# Connection details (URL, user, password) come from Testcontainers via @ServiceConnection.
+# These placeholders only satisfy the "no default password" rule in application.yml.
+spring:
+  datasource:
+    password: provided-by-testcontainers
+    hikari:
+      maximum-pool-size: 24   # concurrency tests open many simultaneous transactions
+  rabbitmq:
+    password: provided-by-testcontainers
+
+hookguard:
+  api:
+    max-payload-bytes: 2048
+  worker:
+    id: it-worker
+    lease-duration: 10s
+  delivery:
+    connect-timeout: 1s
+    request-timeout: 2s
+  demo:
+    enabled: true

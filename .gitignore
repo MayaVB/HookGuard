@@ -1,0 +1,24 @@
+# Build output (anchored: an unanchored "target/" would also hide source packages named "target")
+/target/
+/*/target/
+/frontend/dist/
+/frontend/node_modules/
+
+# Local configuration and secrets
+.env
+*.local
+.env.*
+!.env.example
+
+# Claude Code per-user permissions
+.claude/settings.local.json*
+
+# IDE / OS
+.idea/
+*.iml
+.vscode/
+.DS_Store
+
+# Logs
+*.log
+npm-debug.log*

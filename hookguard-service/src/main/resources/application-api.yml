@@ -1,0 +1,4 @@
+# API process: serves REST, publishes work, does not consume it.
+hookguard:
+  worker:
+    enabled: false

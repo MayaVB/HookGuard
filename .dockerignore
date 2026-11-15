@@ -1,0 +1,6 @@
+.git
+.env
+# Anchored to module build directories only (a bare "**/target" would also match source packages named "target").
+target
+*/target
+frontend

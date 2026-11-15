@@ -1,0 +1,70 @@
+# All environment-specific values come from environment variables (see .env.example).
+# Secrets (passwords) deliberately have no defaults: the app refuses to start without them.
+# Default ports are HookGuard's local dev ports (docker compose publishes Postgres on 55432, RabbitMQ on 5673).
+
+spring:
+  application:
+    name: hookguard
+  datasource:
+    url: ${HOOKGUARD_DB_URL:jdbc:postgresql://localhost:55432/hookguard}
+    username: ${HOOKGUARD_DB_USER:hookguard}
+    password: ${HOOKGUARD_DB_PASSWORD}
+  jackson:
+    datatype:
+      json-node:
+        # Event payloads are parsed into a JSON tree and re-serialized. Without these settings
+        # decimals become doubles: 10.50 -> 10.5 and high-precision values are silently rounded.
+        use-big-decimal-for-floats: true
+        strip-trailing-bigdecimal-zeroes: false
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate   # schema is owned by Flyway; Hibernate only checks the mapping matches
+  rabbitmq:
+    host: ${HOOKGUARD_RABBIT_HOST:localhost}
+    port: ${HOOKGUARD_RABBIT_PORT:5673}
+    username: ${HOOKGUARD_RABBIT_USER:hookguard}
+    password: ${HOOKGUARD_RABBIT_PASSWORD}
+    connection-timeout: 5s
+    listener:
+      simple:
+        # Spring "auto" = ack after the listener returns successfully (NOT RabbitMQ's autoAck,
+        # which acks on receipt and would lose messages if the worker crashed mid-delivery).
+        acknowledge-mode: auto
+        # Each message is a slow network call; fetch one at a time so a crashed worker holds
+        # at most one unacked message per consumer and work spreads evenly.
+        prefetch: 1
+        concurrency: ${HOOKGUARD_WORKER_CONCURRENCY:4}
+        # Exceptions dead-letter the message instead of requeueing it in a tight loop.
+        default-requeue-rejected: false
+
+server:
+  port: ${PORT:8080}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+hookguard:
+  api:
+    max-payload-bytes: ${HOOKGUARD_MAX_PAYLOAD_BYTES:262144}
+  worker:
+    id: ${HOOKGUARD_WORKER_ID:}
+    lease-duration: ${HOOKGUARD_LEASE_DURATION:60s}
+  delivery:
+    connect-timeout: ${HOOKGUARD_CONNECT_TIMEOUT:2s}
+    request-timeout: ${HOOKGUARD_REQUEST_TIMEOUT:10s}
+    max-response-body-bytes: 4096
+  targets:
+    # Comma-separated 'host' or 'host:port' entries. Empty = reject every target.
+    allowed-hosts: ${HOOKGUARD_ALLOWED_HOSTS:}
+  demo:
+    # Demo-only API used by the dashboard's live demo page. Never enable in production.
+    enabled: ${HOOKGUARD_DEMO_ENABLED:false}
+    receiver-base-url: ${HOOKGUARD_DEMO_RECEIVER_URL:http://localhost:9090}

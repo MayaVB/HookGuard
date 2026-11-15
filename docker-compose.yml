@@ -1,0 +1,124 @@
+# Local HookGuard stack. Usage:  cp .env.example .env  &&  docker compose up --build
+# All ports are bound to 127.0.0.1 only.
+#   Dashboard        http://localhost:3000
+#   API              http://localhost:8080
+#   Demo receiver    http://localhost:9090
+#   RabbitMQ UI      http://localhost:15673
+#   PostgreSQL       localhost:55432   (override with HOOKGUARD_DB_HOST_PORT)
+
+name: hookguard
+
+x-service-env: &service-env
+  HOOKGUARD_DB_URL: jdbc:postgresql://postgres:5432/hookguard
+  HOOKGUARD_DB_USER: ${HOOKGUARD_DB_USER:-hookguard}
+  HOOKGUARD_DB_PASSWORD: ${HOOKGUARD_DB_PASSWORD:?Set HOOKGUARD_DB_PASSWORD in .env}
+  HOOKGUARD_RABBIT_HOST: rabbitmq
+  HOOKGUARD_RABBIT_PORT: "5672"
+  HOOKGUARD_RABBIT_USER: ${HOOKGUARD_RABBIT_USER:-hookguard}
+  HOOKGUARD_RABBIT_PASSWORD: ${HOOKGUARD_RABBIT_PASSWORD:?Set HOOKGUARD_RABBIT_PASSWORD in .env}
+  # The only webhook target reachable in this stack: the demo receiver.
+  HOOKGUARD_ALLOWED_HOSTS: demo-receiver:9090
+  HOOKGUARD_REQUEST_TIMEOUT: 5s
+  HOOKGUARD_LEASE_DURATION: 30s
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: hookguard
+      POSTGRES_USER: ${HOOKGUARD_DB_USER:-hookguard}
+      POSTGRES_PASSWORD: ${HOOKGUARD_DB_PASSWORD:?Set HOOKGUARD_DB_PASSWORD in .env}
+    ports:
+      - "127.0.0.1:${HOOKGUARD_DB_HOST_PORT:-55432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d hookguard"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  rabbitmq:
+    image: rabbitmq:4.1-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: ${HOOKGUARD_RABBIT_USER:-hookguard}
+      RABBITMQ_DEFAULT_PASS: ${HOOKGUARD_RABBIT_PASSWORD:?Set HOOKGUARD_RABBIT_PASSWORD in .env}
+    ports:
+      - "127.0.0.1:5673:5672"
+      - "127.0.0.1:15673:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  api:
+    build:
+      context: .
+      dockerfile: hookguard-service/Dockerfile
+    image: hookguard-service:local
+    environment:
+      <<: *service-env
+      SPRING_PROFILES_ACTIVE: api
+      # Demo-only API used by the dashboard's Live demo page (never enable in production).
+      HOOKGUARD_DEMO_ENABLED: "true"
+      HOOKGUARD_DEMO_RECEIVER_URL: http://demo-receiver:9090
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health/readiness | grep -q UP"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+
+  # Same image as the API (built by the api service), different profile.
+  # No host port, so it can be scaled:  docker compose up -d --scale worker=3
+  worker:
+    image: hookguard-service:local
+    pull_policy: never
+    environment:
+      <<: *service-env
+      SPRING_PROFILES_ACTIVE: worker
+      HOOKGUARD_WORKER_CONCURRENCY: ${HOOKGUARD_WORKER_CONCURRENCY:-4}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/actuator/health/readiness | grep -q UP"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+
+  demo-receiver:
+    build:
+      context: .
+      dockerfile: demo-receiver/Dockerfile
+    image: hookguard-demo-receiver:local
+    ports:
+      - "127.0.0.1:9090:9090"
+
+  dashboard:
+    build: ./frontend
+    image: hookguard-dashboard:local
+    ports:
+      - "127.0.0.1:3000:80"
+    depends_on:
+      api:
+        condition: service_healthy
+      demo-receiver:
+        condition: service_started
+
+volumes:
+  postgres-data:
+  rabbitmq-data:
